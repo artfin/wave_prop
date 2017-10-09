@@ -2,17 +2,32 @@
 #include <algorithm>
 #include <complex>
 #include <vector>
+#include <chrono>
 
 #include <fftw3.h>
 
+// Warn about use of deprecated functions
+#define GNUPLOT_DEPRECATE_WARN
+#include "gnuplot-iostream.h"
+
+#include "ar_he_pes.h"
+
 using namespace std;
-	
-const double MASS = 1.0;
-const double OMEGA = 1.0;
+
+typedef chrono::high_resolution_clock::time_point time_point;
+typedef chrono::milliseconds milliseconds;
+
+const double HE_MASS = 4.00260325413;
+const double AR_MASS = 39.9623831237; 
+const double PROTON_TO_ELECTRON_RATIO = 1836.15267389; 
+
+const double MU = HE_MASS * AR_MASS / ( HE_MASS + AR_MASS ) * PROTON_TO_ELECTRON_RATIO; 
+
+const complex<double> IMAG_I( 0, 1 );
 
 double potential( double x )
 {
-	return 0.5 * OMEGA * pow(x, 2);
+	return ar_he_pot( x ); 
 }
 
 class Grid {
@@ -139,11 +154,12 @@ class Wavepacket {
 
 	double _q;
 	double _p;
+	double _j;
 
 	complex<double> _xi;
 	complex<double> _eta;
 
-	vector< complex<double> > grid_wavefunction;
+	double grid_length;
 
 	vector<double> grid_coordinates;
 	vector<double> grid_impulses;
@@ -152,12 +168,16 @@ class Wavepacket {
 	vector<double> grid_kinetic_energy;
 
 	public:
-		Wavepacket( double q, double p, double width, vector<double> grid_coordinates, vector<double> grid_impulses );
+		vector< complex<double> > grid_wavefunction;
+		
+		Wavepacket( double q, double p, double j, double width, vector<double> grid_coordinates, vector<double> grid_impulses );
 		~Wavepacket( void );
 
 		void calculate_potential( void );
 		void calculate_kinetic_energy( void );
 		void calculate_wavefunction( void );
+
+		void get_potential_grid( vector<double> &vec );
 
 		void show_grid_potential( void );
 		void show_grid_kinetic_energy( void );
@@ -177,20 +197,22 @@ class Wavepacket {
 		void propagate_potential_part( double dt );
 };
 
-Wavepacket::Wavepacket( double q, double p, double width, vector<double> _grid_coordinates, vector<double> _grid_impulses )
+Wavepacket::Wavepacket( double q, double p, double j, double width, vector<double> _grid_coordinates, vector<double> _grid_impulses )
 {
-	complex<double> i (0, 1);
-	
 	cout << "Initializing wavepacket on x/p grid" << endl;
 	_q = q;
 	_p = p;
+	_j = j;
+
 	_width = width;
 
 	grid_coordinates = _grid_coordinates;
 	grid_impulses = _grid_impulses;
 	
-	_xi = 2 * _width * _q + i * _p;
-	_eta = - _width * pow( _q, 2 ) - i * _q * _p;
+	_xi = 2 * _width * _q + IMAG_I * _p;
+	_eta = - _width * pow( _q, 2 ) - IMAG_I * _q * _p;
+
+	grid_length = _grid_coordinates.size();
 }	
 
 Wavepacket::~Wavepacket( void )
@@ -200,9 +222,11 @@ Wavepacket::~Wavepacket( void )
 
 void Wavepacket::calculate_potential( void )
 {
+	double pot;
 	for ( int i = 0; i < grid_coordinates.size(); i++ )
 	{
-		grid_potential.push_back( potential(grid_coordinates[i]) );
+		pot = potential( grid_coordinates[i] ) + this->_j * ( this->_j + 1 ) / (2 * MU * pow( grid_coordinates[i], 2 ));
+		grid_potential.push_back( pot );
 	}
 }
 
@@ -210,7 +234,7 @@ void Wavepacket::calculate_kinetic_energy( void )
 {
 	for ( int i = 0; i < grid_impulses.size(); i++ )
 	{
-		grid_kinetic_energy.push_back( grid_impulses[i] * grid_impulses[i] / 2.0 / MASS );
+		grid_kinetic_energy.push_back( grid_impulses[i] * grid_impulses[i] / 2.0 / MU );
 	}
 }
 
@@ -276,19 +300,16 @@ void Wavepacket::normalize_wavefunction( double d )
 
 void Wavepacket::propagate_potential_part( double dt )
 {
-	complex<double> i(0, 1);
-	const int N = grid_wavefunction.size();
-
 	// potential part	
-	for ( int counter = 0; counter < N; counter++ )
-	{
-		grid_wavefunction[counter] *= exp( - i * grid_potential[counter] * dt );
+	for ( int counter = 0; counter < this->grid_length; counter++ )
+	{ 
+		grid_wavefunction[counter] *= exp( - IMAG_I * grid_potential[counter] * dt );
 	}
 }
 
 void Wavepacket::copy_to( fftw_complex* arr )
 {
-	for ( int counter = 0; counter < grid_wavefunction.size(); counter++ )
+	for ( int counter = 0; counter < this->grid_length; counter++ )
 	{
 		arr[counter][0] = real( grid_wavefunction[counter] );
 		arr[counter][1] = imag( grid_wavefunction[counter] );
@@ -297,69 +318,57 @@ void Wavepacket::copy_to( fftw_complex* arr )
 
 void Wavepacket::copy_from( fftw_complex* arr )
 {
-	complex<double> i( 0, 1 );
-	for ( int counter = 0; counter < grid_wavefunction.size(); counter++ )
+	for ( int counter = 0; counter < grid_length; counter++ )
 	{
-		grid_wavefunction[counter] = arr[counter][0] + i * arr[counter][1]; 
+		grid_wavefunction[counter] = arr[counter][0] + IMAG_I * arr[counter][1]; 
 	}
 }
 
 void Wavepacket::propagate_kinetic_part( double dt )
 {
-	complex<double> i(0, 1);
-	const int N = grid_wavefunction.size();
-
-	fftw_complex *in = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * N );
-	fftw_complex *out = ( fftw_complex* ) fftw_malloc( sizeof( fftw_complex ) * N );
+	fftw_complex *in = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * this->grid_length );
+	fftw_complex *out = ( fftw_complex* ) fftw_malloc( sizeof( fftw_complex ) * this->grid_length );
 	
 	copy_to( in );
-	for ( int i = 0; i < N; i++ )
-	{
-		cout << "in[" << i << "] = " << in[i][0] << " + i * " << in[i][1] << endl;
-	}
 
-	fftw_plan plan_backward = fftw_plan_dft_1d( N, in, out, FFTW_BACKWARD, FFTW_ESTIMATE );
+	fftw_plan plan_backward = fftw_plan_dft_1d( this->grid_length, in, out, FFTW_BACKWARD, FFTW_ESTIMATE );
 
 	fftw_execute( plan_backward );
 
 	// normalizing by factor N
-	normalize_fft_result( out, N );
+	normalize_fft_result( out, this->grid_length );
 
 	copy_from( out );
 
+	fftw_destroy_plan( plan_backward );	
+	fftw_free( in );
+	fftw_free( out );
+
 	ifftshift();
 
-	for ( int counter = 0; counter < N; counter++ )
+	// step in impulse space
+	for ( int counter = 0; counter < this->grid_length; counter++ )
 	{
-			grid_wavefunction[counter] *= exp( - i * grid_kinetic_energy[counter] * dt );
+		grid_wavefunction[counter] *= exp( - IMAG_I * grid_kinetic_energy[counter] * dt );
 	}	
 
 	fftshift();
 
-	cout << "after fftshift" << endl;
-	show_grid_wavefunction();
-
-	fftw_complex *in2 = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * N );
-	fftw_complex *out2 = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * N );
+	fftw_complex *in2 = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * this->grid_length );
+	fftw_complex *out2 = (fftw_complex*) fftw_malloc( sizeof( fftw_complex ) * this->grid_length );
 
 	copy_to( in2 );
-	for ( int i = 0; i < N; i++ )
-	{
-			cout << "in2[" << i << "] = " << in2[i][0] << endl;
-	}
 
-	fftw_plan plan_forward = fftw_plan_dft_1d( N, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE );
+	fftw_plan plan_forward = fftw_plan_dft_1d( this->grid_length, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE );
 
 	fftw_execute( plan_forward );
 
-	for ( int i = 0; i < N; i++ )
-	{
-			cout << "out2[" << i << "] = " << out2[i][0] << " + i * " << out2[i][1] << endl;
-	}
-
 	copy_from( out2 );
 
-	show_grid_wavefunction();	
+	fftw_free( in2 );
+	fftw_free( out2 );
+
+	fftw_destroy_plan( plan_forward );
 }
 
 
@@ -388,43 +397,134 @@ void Wavepacket::propagate( double dt )
 
 void Wavepacket::normalize_fft_result( fftw_complex* res, const int N )
 {
-	for ( int i = 0; i < N; i++ )
+	for ( int counter = 0; counter < N; counter++ )
 	{
-		res[i][0] /= N;
-		res[i][1] /= N;
+		res[counter][0] /= N;
+		res[counter][1] /= N;
 	}
 }
 
+void Wavepacket::get_potential_grid( vector<double> &vec )
+{
+	cout << "inside get potential" << endl;
+	for ( int i = 0; i < this->grid_length; i++ )
+	{
+		vec.push_back( grid_potential[i] );
+	}
+}
+
+
 int main ( int argc, char* argv[] )
 {
-	Grid grid( -10.0, 10.0, 10 );
+	if ( argc != 2 )
+	{
+		cout << "USAGE: ./... (int) nsteps" << endl;
+		exit( 1 );
+	}
+
+	int nsteps = atoi( argv[1] ); 
+	
+	const double X_MIN = 1.0;
+	const double X_MAX = 25.0;
+	const int NPOINTS = 8192; 
+	
+	Grid grid( X_MIN, X_MAX, NPOINTS );
 
 	vector<double> x = grid.get_grid_coordinates();
 	vector<double> p = grid.get_grid_impulses();
 
-	double q0 = -2.0;
-	double p0 =  1.0;
-	double width0 = 0.5;
+	double q0 = 9.0;
+	double p0 =  -30.0;
+	double j0 = 10.0;
+
+	double width0 = 0.3;
 
 	double d = grid.get_d();
 
-	Wavepacket wp( q0, p0, width0, x, p );   
+	Wavepacket wp( q0, p0, j0, width0, x, p );   
 
 	wp.calculate_potential();
-	wp.show_grid_potential();
+	//wp.show_grid_potential();
 
 	wp.calculate_kinetic_energy();
-	wp.show_grid_kinetic_energy();
+	//wp.show_grid_kinetic_energy();
 
 	wp.calculate_wavefunction();
-	wp.show_grid_wavefunction();
+	//wp.show_grid_wavefunction();
 
 	wp.normalize_wavefunction( d );
-	wp.show_grid_wavefunction();
+	//wp.show_grid_wavefunction();
+	
+	Gnuplot gp;
+	//gp << "set xrange [" << X_MIN << ":" << X_MAX << "]" << endl;
+	//gp << "set yrange [" << -0.2 << ":" << 1.2 << "]" << endl;
 
-	double dt = 0.001;
-	wp.propagate( dt );
+	double dt = 1.0; // 0.05;
+	
+	const int block_size = 1000;	
+	vector< pair<double, double> > xy_pts;
+	vector< pair<double, double> > pot_pts;
 
+	vector< time_point > blockTimes;
+	blockTimes.push_back( chrono::high_resolution_clock::now() );
+
+	milliseconds time_for_block;
+	milliseconds time_for_blocks;
+
+	int block_counter = 0;
+
+	vector<double> potential_grid;
+	wp.get_potential_grid ( potential_grid );
+
+	for ( int pts_counter = 0; pts_counter < NPOINTS; pts_counter++ )
+	{
+		pot_pts.push_back( make_pair( x[pts_counter], potential_grid[pts_counter] ));
+	}
+
+	for ( int counter = 0; counter < nsteps; counter++ )
+	{
+		if ( counter % block_size == 0 && counter != 0 )
+		{
+			block_counter++;
+
+			blockTimes.push_back( chrono::high_resolution_clock::now() );
+
+			time_for_block = chrono::duration_cast<milliseconds>( blockTimes.end()[-1] - blockTimes.end()[-2] );
+			time_for_blocks = chrono::duration_cast<milliseconds>( blockTimes.end()[-1] - blockTimes[0] );
+
+			cout << endl;
+			cout << "Block " << counter << " finished." << endl;
+		   	cout << "Time for current block: " << time_for_block.count() / 1000.0 << " s; total time elapsed: " << time_for_blocks.count() / 1000.0 << " s" << endl;
+		
+			// clearing the points container	
+			xy_pts.clear();
+
+			for ( int pts_counter = 0; pts_counter < NPOINTS; pts_counter++ )
+			{
+				xy_pts.push_back( make_pair( x[pts_counter], abs( wp.grid_wavefunction[pts_counter] )) );
+			}
+			
+			gp << "set xrange [-1:20]\n;";
+			gp << "set yrange [-0.05:1.5]\n";
+
+			gp << "plot '-' with lines title 'psi', '-' with points title 'potential'\n";
+
+			gp.send1d( xy_pts );
+			gp.send1d( pot_pts );
+
+			gp.flush();
+
+		}
+
+		wp.propagate( dt );
+	}
+
+	blockTimes.push_back( chrono::high_resolution_clock::now() );
+	cout << "Total time elapsed: " << chrono::duration_cast<milliseconds>( blockTimes.end()[-1] - blockTimes[0]).count() << " ms" << endl;
+	
+	// deallocating FFTW memory
+	fftw_cleanup();
+	
 	return 0;	
 }
 
