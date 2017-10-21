@@ -16,6 +16,7 @@
 
 using namespace std;
 
+const double LIGHTSPEED = 3.0 * 1E10;
 const long double PLANCKCONST = 6.62 * 1E-34;
 const long double BOLTZCONST = 1.23 * 1E-23;
 const double Temperature = 250.0;
@@ -73,6 +74,8 @@ void plot_signal( Gnuplot &gp, vector<double> &ts, vector<double> &ds )
 		signal.push_back( make_pair( ts[i], ds[i] ));	
 	}
 
+	gp << "set xrange [0:400]\n;";
+		
 	gp << "plot '-' with lines title 'signal'" << endl;
 	gp.send1d( signal );
 
@@ -171,7 +174,7 @@ vector<double> binary_absorption( vector<double> &freq, vector<double> &ints )
 
 	for ( int i = 0; i < freq.size(); i++ )
 	{
-		temp = freq[i] * ints[i] * ( 1 - exp(- PLANCKCONST * freq[i] / (BOLTZCONST * Temperature) ) ); 
+		temp = freq[i] * ints[i] * ( 1 - exp(- PLANCKCONST * LIGHTSPEED * freq[i] / (BOLTZCONST * Temperature) ) ); 
 		res.push_back( temp );	
 	}
 

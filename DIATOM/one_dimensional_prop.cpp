@@ -545,8 +545,8 @@ int main ( int argc, char* argv[] )
 	vector<double> x = grid.get_grid_coordinates();
 	vector<double> p = grid.get_grid_impulses();
 
-	double q0 = 5.0;
-	double p0 = -3.0;
+	double q0 = 10.0;
+	double p0 = -30.0;
 	double j0 = 3.0;
 
 	double width0 = 0.3;
@@ -572,7 +572,7 @@ int main ( int argc, char* argv[] )
 	double curr_time = 0.0;
 	double dt = 1.0; // 0.05;
 	
-	const int block_size = 1000;	
+	const int block_size = 500;	
 	vector< pair<double, double> > pot_pts;
 
 	double d_mean;
