@@ -518,14 +518,14 @@ void Wavepacket::plot( Gnuplot& gp,
 
 	string plot_name = "plot" + static_cast<ostringstream*>( &(ostringstream() << counter) )->str() + ".png";
 
-	gp << "set xrange [-1:20]\n;";
+	gp << "set xrange [-1:45]\n;";
 	gp << "set yrange [-0.05:1.5]\n";
 			
 	//gp << "set label 1 sprintf('q(mean) = " << q_mean << "') at 10,0.3\n";
 	//gp << "set label 2 sprintf('p(mean) = " << p_mean << "') at 10,0.4\n"; 
 
-	gp << "set terminal png size 1200,800 enhanced font 'Helvetica,20'\n";
-	gp << "set output 'pics/" << plot_name << "'\n";
+	//gp << "set terminal png size 1200,800 enhanced font 'Helvetica,20'\n";
+	//gp << "set output 'pics/" << plot_name << "'\n";
 
 	gp << "plot '-' with lines title 'psi', '-' with points title 'potential'\n";
 	gp.send1d( wavepacket_pts );
@@ -546,7 +546,7 @@ int main ( int argc, char* argv[] )
 	int nsteps = atoi( argv[1] ); 
 	
 	const double X_MIN = 1.0;
-	const double X_MAX = 25.0;
+	const double X_MAX = 45.0;
 	const int NPOINTS = 8192; 
 	
 	Grid grid( X_MIN, X_MAX, NPOINTS );
@@ -554,7 +554,7 @@ int main ( int argc, char* argv[] )
 	vector<double> x = grid.get_grid_coordinates();
 	vector<double> p = grid.get_grid_impulses();
 
-	double q0 = 10.0;
+	double q0 = 40.0;
 	double p0 = -30.0;
 	double j0 = 3.0;
 
@@ -581,7 +581,7 @@ int main ( int argc, char* argv[] )
 	double curr_time = 0.0;
 	double dt = 1.0; // 0.05;
 	
-	const int block_size = 500;	
+	const int block_size = 1000;	
 	vector< pair<double, double> > pot_pts;
 
 	double d_mean;
@@ -598,7 +598,7 @@ int main ( int argc, char* argv[] )
 	wp.get_potential_grid ( potential_grid );
 
 	ofstream file;
-	file.open( "dipole_moment.txt" );
+	file.open( "dipole_moment2.txt" );
 
 	for ( int pts_counter = 0; pts_counter < NPOINTS; pts_counter++ )
 	{

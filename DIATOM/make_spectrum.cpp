@@ -185,7 +185,7 @@ int main()
 {
 	// vectors of time and induced dipole moment
 	vector<double> t, signal;
-	read_dipole( "dipole_moment.txt", t, signal );
+	read_dipole( "dipole_moment2.txt", t, signal );
 
 	//vector<double> t = linspace( 0.0, npoints * sampling_time, npoints );
 	//show_vector( "t", t );
@@ -203,7 +203,7 @@ int main()
 	const double CMTOHZ = 3.335631 * pow( 10, -11 );
 	multiply_vector( freqs, CMTOHZ / ATU );
 
-	//show_vector( "freqs", freqs );
+	show_vector( "freqs", freqs );
 	
 	vector<double> ints = fft( signal );
 	vector<double> bin_abs = binary_absorption( freqs, ints );
@@ -211,8 +211,8 @@ int main()
 	show_vector( "ints", ints );
 
 	Gnuplot gp;
-	plot_signal( gp, freqs, ints );
-	//plot_signal( gp, freqs, bin_abs );
+	//plot_signal( gp, freqs, ints );
+	plot_signal( gp, freqs, bin_abs );
 
 	save_spectrum( "spectrum", freqs, ints );
 
