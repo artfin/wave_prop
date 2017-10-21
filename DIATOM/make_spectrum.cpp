@@ -211,8 +211,8 @@ int main()
 	show_vector( "ints", ints );
 
 	Gnuplot gp;
-	//plot_signal( gp, freqs, ints );
-	plot_signal( gp, freqs, bin_abs );
+	plot_signal( gp, freqs, ints );
+	//plot_signal( gp, freqs, bin_abs );
 
 	save_spectrum( "spectrum", freqs, ints );
 
