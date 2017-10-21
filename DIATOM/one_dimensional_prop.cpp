@@ -5,6 +5,8 @@
 #include <chrono>
 
 #include <fstream>
+#include <string>
+#include <sstream>
 
 #include <fftw3.h>
 
@@ -215,7 +217,8 @@ class Wavepacket {
 		void propagate_potential_part( double dt );
 		
 		void plot( Gnuplot& gp, 
-					   		   vector< pair<double, double>> &pot_pts);
+		   		   vector< pair<double, double>> &pot_pts,
+				   int counter );
 };
 
 Wavepacket::Wavepacket( double q, double p, double j, double width, vector<double> _grid_coordinates, vector<double> _grid_impulses )
@@ -501,7 +504,8 @@ void Wavepacket::get_potential_grid( vector<double> &vec )
 }
 
 void Wavepacket::plot( Gnuplot& gp, 
-			   		   vector< pair<double, double>> &pot_pts)
+			   		   vector< pair<double, double>> &pot_pts,
+					   int counter )
 {
 	vector< pair<double, double> > wavepacket_pts;
 	double q_mean = calculate_q_mean();
@@ -511,12 +515,17 @@ void Wavepacket::plot( Gnuplot& gp,
 		wavepacket_pts.push_back( make_pair( grid_coordinates[pts_counter], abs( grid_wavefunction[pts_counter] )) );
 
 	}
-			
+
+	string plot_name = "plot" + static_cast<ostringstream*>( &(ostringstream() << counter) )->str() + ".png";
+
 	gp << "set xrange [-1:20]\n;";
 	gp << "set yrange [-0.05:1.5]\n";
 			
-	gp << "set label 1 sprintf('q(mean) = " << q_mean << "') at 10,0.3\n";
-	gp << "set label 2 sprintf('p(mean) = " << p_mean << "') at 10,0.4\n"; 
+	//gp << "set label 1 sprintf('q(mean) = " << q_mean << "') at 10,0.3\n";
+	//gp << "set label 2 sprintf('p(mean) = " << p_mean << "') at 10,0.4\n"; 
+
+	gp << "set terminal png size 1200,800 enhanced font 'Helvetica,20'\n";
+	gp << "set output 'pics/" << plot_name << "'\n";
 
 	gp << "plot '-' with lines title 'psi', '-' with points title 'potential'\n";
 	gp.send1d( wavepacket_pts );
@@ -611,7 +620,7 @@ int main ( int argc, char* argv[] )
 			cout << "Block " << block_counter << " finished." << endl;
 		   	cout << "Time for current block: " << time_for_block.count() / 1000.0 << " s; total time elapsed: " << time_for_blocks.count() / 1000.0 << " s" << endl;
 	
-			wp.plot( gp, pot_pts );
+			wp.plot( gp, pot_pts, block_counter );
 
 			d_mean = wp.calculate_d_mean();
 		
