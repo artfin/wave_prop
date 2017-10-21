@@ -20,8 +20,18 @@ $(POT_OBJ)ar_he_pes.o: $(POT_SRC)ar_he_pes.cpp
 
 ########################################################################
 
-one_dimensional_prop: one_dimensional_prop.cpp $(POT_OBJ)ar_he_pes.o
-	$(CCXX) $(CXXFLAGS) $(INCLUDE_FFTW) $(INCLUDE_GNUPLOT_IO) $(LINK_BOOST) $(POT_INCLUDE) $^ -o $@ 
+DIP_SRC = ../DIP/src/
+DIP_OBJ = ../DIP/obj/
+DIP_INCLUDE = -I ../DIP/include/
 
+$(DIP_OBJ)ar_he_dip.o: $(DIP_SRC)ar_he_dip.cpp
+	$(CCXX) $(CXXFLAGS) -c $^ -o $@ $(DIP_INCLUDE)
 
+########################################################################
+
+one_dimensional_prop: one_dimensional_prop.cpp $(POT_OBJ)ar_he_pes.o $(DIP_OBJ)ar_he_dip.o
+	$(CCXX) $(CXXFLAGS) $(INCLUDE_FFTW) $(INCLUDE_GNUPLOT_IO) $(LINK_BOOST) $(POT_INCLUDE) $(DIP_INCLUDE) $^ -o $@ 
+
+make_spectrum: make_spectrum.cpp
+	$(CCXX) $(CXXFLAGS) $(INCLUDE_GNUPLOT_IO) $(LINK_BOOST) $(INCLUDE_FFTW) $^ -o $@
 

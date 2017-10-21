@@ -4,6 +4,8 @@
 #include <vector>
 #include <chrono>
 
+#include <fstream>
+
 #include <fftw3.h>
 
 // Warn about use of deprecated functions
@@ -11,6 +13,7 @@
 #include "gnuplot-iostream.h"
 
 #include "ar_he_pes.h"
+#include "ar_he_dip.h"
 
 using namespace std;
 
@@ -48,8 +51,6 @@ class Grid {
 		Grid( double min, double max, int npoints );
 		~Grid(); 
 		
-		double get_d( void ) { return _d; }
-
 		void create_coordinate_grid( void );
 		void show_coordinate_grid( void );
 
@@ -159,7 +160,12 @@ class Wavepacket {
 	complex<double> _xi;
 	complex<double> _eta;
 
+	double x_step;
+	double p_step;
+
 	double grid_length;
+
+	double p_mean;
 
 	vector<double> grid_coordinates;
 	vector<double> grid_impulses;
@@ -167,15 +173,23 @@ class Wavepacket {
 	vector<double> grid_potential;
 	vector<double> grid_kinetic_energy;
 
+	vector<double> grid_dipole;
+
 	public:
 		vector< complex<double> > grid_wavefunction;
 		
 		Wavepacket( double q, double p, double j, double width, vector<double> grid_coordinates, vector<double> grid_impulses );
 		~Wavepacket( void );
 
+		double get_p_mean( void ) { return p_mean; }
+
+		double calc_x_step( void );
+		double calc_p_step( void );
+
 		void calculate_potential( void );
 		void calculate_kinetic_energy( void );
 		void calculate_wavefunction( void );
+		void calculate_dipole( void );
 
 		void get_potential_grid( vector<double> &vec );
 
@@ -183,7 +197,7 @@ class Wavepacket {
 		void show_grid_kinetic_energy( void );
 		void show_grid_wavefunction( void );
 
-		void normalize_wavefunction( double d );
+		void normalize_wavefunction( void );
 		void normalize_fft_result( fftw_complex* res, const int N );
 
 		void copy_to( fftw_complex* arr );
@@ -192,9 +206,16 @@ class Wavepacket {
 		void fftshift();
 		void ifftshift();
 
+		double calculate_q_mean( void );
+		double calculate_h_mean( void );
+		double calculate_d_mean( void );
+
 		void propagate( double dt );
 		void propagate_kinetic_part( double dt );
 		void propagate_potential_part( double dt );
+		
+		void plot( Gnuplot& gp, 
+					   		   vector< pair<double, double>> &pot_pts);
 };
 
 Wavepacket::Wavepacket( double q, double p, double j, double width, vector<double> _grid_coordinates, vector<double> _grid_impulses )
@@ -213,11 +234,68 @@ Wavepacket::Wavepacket( double q, double p, double j, double width, vector<doubl
 	_eta = - _width * pow( _q, 2 ) - IMAG_I * _q * _p;
 
 	grid_length = _grid_coordinates.size();
+
+	x_step = calc_x_step();
+	p_step = calc_p_step();
 }	
 
 Wavepacket::~Wavepacket( void )
 {
 	cout << "Wavepacket is deleted" << endl;
+}
+
+double Wavepacket::calculate_q_mean( void )
+{
+	double q_mean = 0;
+
+	q_mean += 0.5 * grid_coordinates[0] * pow( abs(grid_wavefunction[0]), 2 ) * this->x_step;
+   	q_mean += 0.5 * grid_coordinates.end()[-1] * pow( abs(grid_wavefunction.end()[-1]), 2 ) * this->x_step;	
+
+	for ( int i = 1; i < grid_coordinates.size() - 1; i++ )
+	{
+		q_mean += grid_coordinates[i] * pow( abs(grid_wavefunction[i]), 2 ) * this->x_step; 
+	}
+
+	return q_mean;
+}
+
+double Wavepacket::calculate_d_mean( void )
+{
+	double d_mean = 0;
+
+	d_mean += 0.5 * grid_dipole[0] * pow( abs(grid_wavefunction[0]), 2 ) * this->x_step;
+	d_mean += 0.5 * grid_dipole.end()[-1] * pow( abs(grid_wavefunction.end()[-1]), 2 ) * this->x_step;
+
+	for ( int i = 1; i < grid_coordinates.size() - 1; i++ )
+	{
+		d_mean += grid_dipole[i] * pow( abs(grid_wavefunction[i]), 2 ) * this->x_step;
+	}
+
+	return d_mean;
+}
+
+double Wavepacket::calculate_h_mean( void )
+{
+}
+
+double Wavepacket::calc_x_step( void )
+{
+	return grid_coordinates.end()[-1] - grid_coordinates.end()[-2];
+}
+
+double Wavepacket::calc_p_step( void )
+{
+	return grid_impulses.end()[-1] - grid_impulses.end()[-2];
+}
+
+void Wavepacket::calculate_dipole( void )
+{
+	double dip;
+	for ( int i = 0; i < grid_coordinates.size(); i++ )
+	{
+		dip = ar_he_dip( grid_coordinates[i] );
+	   	grid_dipole.push_back( dip );	
+	}
 }
 
 void Wavepacket::calculate_potential( void )
@@ -283,14 +361,14 @@ void Wavepacket::show_grid_wavefunction( void )
 }
 
 // wtf is d ??
-void Wavepacket::normalize_wavefunction( double d )
+void Wavepacket::normalize_wavefunction( )
 {
 	double s = 0;
 	for ( int i = 0; i < grid_wavefunction.size(); i++ )
 	{
 		s += pow( abs( grid_wavefunction[i] ), 2 );
 	}
-	s = sqrt(s * d);
+	s = sqrt(s * this->x_step);
 
 	for ( int i = 0; i < grid_wavefunction.size(); i++ )
 	{
@@ -346,11 +424,20 @@ void Wavepacket::propagate_kinetic_part( double dt )
 
 	ifftshift();
 
+	this->p_mean = 0;
+	this->p_mean += grid_impulses[0] * pow( abs(grid_wavefunction[0]), 2 ) * this->p_step;
+	this->p_mean += grid_impulses.end()[-1] * pow( abs(grid_wavefunction.end()[-1]), 2 ) * this->p_step;
+
 	// step in impulse space
 	for ( int counter = 0; counter < this->grid_length; counter++ )
 	{
 		grid_wavefunction[counter] *= exp( - IMAG_I * grid_kinetic_energy[counter] * dt );
-	}	
+
+		if ( counter != 0 && counter != this->grid_length - 1 )
+		{		
+			this->p_mean += grid_impulses[counter] * pow( abs(grid_wavefunction[counter]), 2 ) * this->p_step;
+		}	
+	}
 
 	fftshift();
 
@@ -413,6 +500,31 @@ void Wavepacket::get_potential_grid( vector<double> &vec )
 	}
 }
 
+void Wavepacket::plot( Gnuplot& gp, 
+			   		   vector< pair<double, double>> &pot_pts)
+{
+	vector< pair<double, double> > wavepacket_pts;
+	double q_mean = calculate_q_mean();
+
+	for ( int pts_counter = 0; pts_counter < this->grid_length; pts_counter++ )
+	{
+		wavepacket_pts.push_back( make_pair( grid_coordinates[pts_counter], abs( grid_wavefunction[pts_counter] )) );
+
+	}
+			
+	gp << "set xrange [-1:20]\n;";
+	gp << "set yrange [-0.05:1.5]\n";
+			
+	gp << "set label 1 sprintf('q(mean) = " << q_mean << "') at 10,0.3\n";
+	gp << "set label 2 sprintf('p(mean) = " << p_mean << "') at 10,0.4\n"; 
+
+	gp << "plot '-' with lines title 'psi', '-' with points title 'potential'\n";
+	gp.send1d( wavepacket_pts );
+	gp.send1d( pot_pts );
+
+	gp.flush();
+}
+
 
 int main ( int argc, char* argv[] )
 {
@@ -433,18 +545,18 @@ int main ( int argc, char* argv[] )
 	vector<double> x = grid.get_grid_coordinates();
 	vector<double> p = grid.get_grid_impulses();
 
-	double q0 = 9.0;
-	double p0 =  -30.0;
-	double j0 = 10.0;
+	double q0 = 5.0;
+	double p0 = -3.0;
+	double j0 = 3.0;
 
 	double width0 = 0.3;
-
-	double d = grid.get_d();
 
 	Wavepacket wp( q0, p0, j0, width0, x, p );   
 
 	wp.calculate_potential();
 	//wp.show_grid_potential();
+
+	wp.calculate_dipole();
 
 	wp.calculate_kinetic_energy();
 	//wp.show_grid_kinetic_energy();
@@ -452,18 +564,18 @@ int main ( int argc, char* argv[] )
 	wp.calculate_wavefunction();
 	//wp.show_grid_wavefunction();
 
-	wp.normalize_wavefunction( d );
+	wp.normalize_wavefunction( );
 	//wp.show_grid_wavefunction();
 	
 	Gnuplot gp;
-	//gp << "set xrange [" << X_MIN << ":" << X_MAX << "]" << endl;
-	//gp << "set yrange [" << -0.2 << ":" << 1.2 << "]" << endl;
 
+	double curr_time = 0.0;
 	double dt = 1.0; // 0.05;
 	
 	const int block_size = 1000;	
-	vector< pair<double, double> > xy_pts;
 	vector< pair<double, double> > pot_pts;
+
+	double d_mean;
 
 	vector< time_point > blockTimes;
 	blockTimes.push_back( chrono::high_resolution_clock::now() );
@@ -475,6 +587,9 @@ int main ( int argc, char* argv[] )
 
 	vector<double> potential_grid;
 	wp.get_potential_grid ( potential_grid );
+
+	ofstream file;
+	file.open( "dipole_moment.txt" );
 
 	for ( int pts_counter = 0; pts_counter < NPOINTS; pts_counter++ )
 	{
@@ -493,35 +608,26 @@ int main ( int argc, char* argv[] )
 			time_for_blocks = chrono::duration_cast<milliseconds>( blockTimes.end()[-1] - blockTimes[0] );
 
 			cout << endl;
-			cout << "Block " << counter << " finished." << endl;
+			cout << "Block " << block_counter << " finished." << endl;
 		   	cout << "Time for current block: " << time_for_block.count() / 1000.0 << " s; total time elapsed: " << time_for_blocks.count() / 1000.0 << " s" << endl;
+	
+			wp.plot( gp, pot_pts );
+
+			d_mean = wp.calculate_d_mean();
 		
-			// clearing the points container	
-			xy_pts.clear();
-
-			for ( int pts_counter = 0; pts_counter < NPOINTS; pts_counter++ )
-			{
-				xy_pts.push_back( make_pair( x[pts_counter], abs( wp.grid_wavefunction[pts_counter] )) );
-			}
-			
-			gp << "set xrange [-1:20]\n;";
-			gp << "set yrange [-0.05:1.5]\n";
-
-			gp << "plot '-' with lines title 'psi', '-' with points title 'potential'\n";
-
-			gp.send1d( xy_pts );
-			gp.send1d( pot_pts );
-
-			gp.flush();
-
+			// writing dipole to file
+			file << curr_time << " " << d_mean << endl;
 		}
-
+		
+		curr_time += dt;
 		wp.propagate( dt );
 	}
 
 	blockTimes.push_back( chrono::high_resolution_clock::now() );
 	cout << "Total time elapsed: " << chrono::duration_cast<milliseconds>( blockTimes.end()[-1] - blockTimes[0]).count() << " ms" << endl;
-	
+
+	file.close();
+
 	// deallocating FFTW memory
 	fftw_cleanup();
 	
